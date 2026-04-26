@@ -87,3 +87,40 @@ class TestResolveChannelPromptComposite:
         # accept int keys, which would mask a bridge regression.
         extra_pre = {"channel_prompts": {-1001: "Group", 5: "Thread"}}
         assert resolve_channel_prompt(extra_pre, "5", "-1001") is None
+
+
+class TestTelegramCallerContractCompositeKey:
+    """Caller-contract test: replicates the exact (channel_id, parent_id) arg
+    shape that gateway/platforms/telegram.py:_event_from_message passes to
+    resolve_channel_prompt today, and verifies it reaches the composite-key
+    path correctly. This is *not* a full integration test — it does not drive
+    a fake telegram.Message through _event_from_message. The full path is
+    exercised by the existing telegram-suite tests once the call-site change
+    lands."""
+
+    def _telegram_call(self, extra: dict, chat_id: str, thread_id: str | None) -> str | None:
+        # Replicate the exact arg shape telegram.py passes today, line for line.
+        return resolve_channel_prompt(
+            extra,
+            thread_id or chat_id,
+            chat_id if thread_id else None,
+        )
+
+    def test_telegram_caller_resolves_composite_key(self):
+        extra = {
+            "channel_prompts": {
+                "-1003742888118:5": "AI Villa ops",
+                "-1003953149701:5": "Design ai-villa",
+            }
+        }
+        assert self._telegram_call(extra, "-1003742888118", "5") == "AI Villa ops"
+        assert self._telegram_call(extra, "-1003953149701", "5") == "Design ai-villa"
+
+    def test_telegram_caller_falls_through_to_thread_key(self):
+        extra = {"channel_prompts": {"5": "Generic thread 5"}}
+        assert self._telegram_call(extra, "-1003742888118", "5") == "Generic thread 5"
+
+    def test_telegram_caller_falls_through_to_chat_key_when_no_thread(self):
+        # DM or non-forum group: thread_id is None; only the chat-level key applies.
+        extra = {"channel_prompts": {"-1003742888118": "Group prompt"}}
+        assert self._telegram_call(extra, "-1003742888118", None) == "Group prompt"
