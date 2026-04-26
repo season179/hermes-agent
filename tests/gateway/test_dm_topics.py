@@ -48,13 +48,19 @@ _ensure_telegram_mock()
 from plugins.platforms.telegram.adapter import TelegramAdapter  # noqa: E402
 
 
-def _make_adapter(dm_topics_config=None, group_topics_config=None):
-    """Create a TelegramAdapter with optional DM/group topics config."""
+def _make_adapter(
+    dm_topics_config=None,
+    group_topics_config=None,
+    channel_prompts_config=None,
+):
+    """Create an adapter with optional topic and channel-prompt config."""
     extra = {}
     if dm_topics_config is not None:
         extra["dm_topics"] = dm_topics_config
     if group_topics_config is not None:
         extra["group_topics"] = group_topics_config
+    if channel_prompts_config is not None:
+        extra["channel_prompts"] = channel_prompts_config
     config = PlatformConfig(enabled=True, token="***", extra=extra)
     adapter = TelegramAdapter(config)
     return adapter
@@ -877,6 +883,124 @@ def test_group_topic_mapping_shape_config():
 
     assert event.auto_skill == "sales-framework"
     assert event.source.chat_topic == "Sales"
+
+
+def test_group_topic_prompt_disambiguates_colliding_thread_ids():
+    """The chat and thread ID pair selects a prompt when thread IDs collide."""
+    from gateway.platforms.base import MessageType
+
+    adapter = _make_adapter(group_topics_config=[
+        {
+            "chat_id": -1001234567890,
+            "topics": [{"thread_id": 5, "prompt": "Engineering prompt"}],
+        },
+        {
+            "chat_id": -1009876543210,
+            "topics": [{"thread_id": 5, "prompt": "Operations prompt"}],
+        },
+    ])
+
+    engineering = _make_mock_message(
+        chat_id=-1001234567890,
+        chat_type=_ChatType.SUPERGROUP,
+        thread_id=5,
+        is_topic_message=True,
+        is_forum=True,
+    )
+    operations = _make_mock_message(
+        chat_id=-1009876543210,
+        chat_type=_ChatType.SUPERGROUP,
+        thread_id=5,
+        is_topic_message=True,
+        is_forum=True,
+    )
+
+    assert (
+        adapter._build_message_event(engineering, MessageType.TEXT).channel_prompt
+        == "Engineering prompt"
+    )
+    assert (
+        adapter._build_message_event(operations, MessageType.TEXT).channel_prompt
+        == "Operations prompt"
+    )
+
+
+def test_group_topic_prompt_takes_precedence_over_channel_prompt():
+    """The prompt on the matched group topic is the most specific value."""
+    from gateway.platforms.base import MessageType
+
+    adapter = _make_adapter(
+        group_topics_config=[
+            {
+                "chat_id": -1001234567890,
+                "topics": [{"thread_id": 5, "prompt": "Topic prompt"}],
+            },
+        ],
+        channel_prompts_config={"5": "Flat prompt"},
+    )
+    msg = _make_mock_message(
+        chat_id=-1001234567890,
+        chat_type=_ChatType.SUPERGROUP,
+        thread_id=5,
+        is_topic_message=True,
+        is_forum=True,
+    )
+
+    event = adapter._build_message_event(msg, MessageType.TEXT)
+
+    assert event.channel_prompt == "Topic prompt"
+
+
+def test_group_topic_prompt_falls_back_to_channel_prompt():
+    """A topic without a prompt preserves the flat channel prompt fallback."""
+    from gateway.platforms.base import MessageType
+
+    adapter = _make_adapter(
+        group_topics_config=[
+            {
+                "chat_id": -1001234567890,
+                "topics": [
+                    {"thread_id": 5, "name": "Engineering", "prompt": "   "},
+                ],
+            },
+        ],
+        channel_prompts_config={"5": "Flat prompt"},
+    )
+    msg = _make_mock_message(
+        chat_id=-1001234567890,
+        chat_type=_ChatType.SUPERGROUP,
+        thread_id=5,
+        is_topic_message=True,
+        is_forum=True,
+    )
+
+    event = adapter._build_message_event(msg, MessageType.TEXT)
+
+    assert event.channel_prompt == "Flat prompt"
+
+
+def test_group_topic_prompt_supports_mapping_shape_config():
+    """Mapping-shaped group_topics config resolves prompts through the same path."""
+    from gateway.platforms.base import MessageType
+
+    adapter = _make_adapter(
+        group_topics_config={
+            "-1001234567890": [
+                {"thread_id": 5, "name": "Engineering", "prompt": "Mapped prompt"},
+            ],
+        }
+    )
+    msg = _make_mock_message(
+        chat_id=-1001234567890,
+        chat_type=_ChatType.SUPERGROUP,
+        thread_id=5,
+        is_topic_message=True,
+        is_forum=True,
+    )
+
+    event = adapter._build_message_event(msg, MessageType.TEXT)
+
+    assert event.channel_prompt == "Mapped prompt"
 
 
 def test_group_topic_malformed_config_does_not_crash():

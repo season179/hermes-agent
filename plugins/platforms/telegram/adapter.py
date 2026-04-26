@@ -8675,6 +8675,7 @@ class TelegramAdapter(BasePlatformAdapter):
         thread_id_str = self._effective_message_thread_id(message)
         chat_topic = None
         topic_skill = None
+        topic_prompt = None
 
         if chat_type == "dm" and thread_id_str:
             topic_info = self._get_dm_topic_info(str(chat.id), thread_id_str)
@@ -8691,37 +8692,17 @@ class TelegramAdapter(BasePlatformAdapter):
                         chat_topic = created_name
 
         elif chat_type == "group" and thread_id_str:
-            # Group/supergroup forum topic skill binding via config.extra['group_topics'].
-            # Accept both supported shapes:
-            #   [{"chat_id": "-100...", "topics": [...]}]
-            # and legacy/operator-edited mapping shape:
-            #   {"-100...": [{"thread_id": 12, ...}]}
-            group_topics_config = self.config.extra.get("group_topics", [])
-            if isinstance(group_topics_config, dict):
-                group_topics_iter = [
-                    {"chat_id": cfg_chat_id, "topics": topics}
-                    for cfg_chat_id, topics in group_topics_config.items()
-                ]
-            elif isinstance(group_topics_config, list):
-                group_topics_iter = [
-                    entry for entry in group_topics_config if isinstance(entry, dict)
-                ]
-            else:
-                group_topics_iter = []
-            for chat_entry in group_topics_iter:
-                if str(chat_entry.get("chat_id", "")) == str(chat.id):
-                    topics = chat_entry.get("topics", [])
-                    if not isinstance(topics, list):
-                        topics = []
-                    for topic in topics:
-                        if not isinstance(topic, dict):
-                            continue
-                        tid = topic.get("thread_id")
-                        if tid is not None and str(tid) == thread_id_str:
-                            chat_topic = topic.get("name")
-                            topic_skill = topic.get("skill")
-                            break
-                    break
+            topic_info = _resolve_group_topic(
+                self.config.extra,
+                str(chat.id),
+                thread_id_str,
+            )
+            if topic_info:
+                chat_topic = topic_info.get("name")
+                topic_skill = topic_info.get("skill")
+                configured_prompt = topic_info.get("prompt")
+                if configured_prompt is not None:
+                    topic_prompt = str(configured_prompt).strip() or None
 
         # Build source
         source = self.build_source(
@@ -8787,7 +8768,7 @@ class TelegramAdapter(BasePlatformAdapter):
         # Per-channel/topic ephemeral prompt
         from gateway.platforms.base import resolve_channel_prompt
         _chat_id_str = str(chat.id)
-        _channel_prompt = resolve_channel_prompt(
+        _channel_prompt = topic_prompt or resolve_channel_prompt(
             self.config.extra,
             thread_id_str or _chat_id_str,
             _chat_id_str if thread_id_str else None,
