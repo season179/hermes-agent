@@ -855,9 +855,9 @@ sqlite3 ~/.hermes/state.db \
 
 If you downgrade to a Hermes version that predates `/topic`, the feature simply stops working — the `telegram_dm_topic_mode` and `telegram_dm_topic_bindings` tables remain in `state.db` but are ignored by older code. DMs revert to the native per-thread isolation (each `message_thread_id` still gets its own session via `build_session_key`), so your existing Telegram topics keep working as parallel sessions. The root DM is no longer a lobby — messages there go into the agent like they used to. Re-upgrading reactivates multi-session mode exactly where it was.
 
-## Group Forum Topic Skill Binding
+## Group Forum Topic Bindings
 
-Supergroups with **Topics mode** enabled (also called "forum topics") already get session isolation per topic — each `thread_id` maps to its own conversation. But you may want to **auto-load a skill** when messages arrive in a specific group topic, just like DM topic skill binding works.
+Supergroups with **Topics mode** enabled (also called "forum topics") already get session isolation per topic — each `thread_id` maps to its own conversation. A topic binding can also auto-load a skill or apply an ephemeral prompt to every turn in that topic.
 
 ### Use case
 
@@ -881,6 +881,8 @@ platforms:
         - name: Engineering
           thread_id: 5
           skill: software-development
+          prompt: |
+            Focus on implementation details and cite relevant source files.
         - name: Research
           thread_id: 12
           skill: arxiv
@@ -897,13 +899,14 @@ platforms:
 | `name` | No | Human-readable label for the topic (informational only) |
 | `thread_id` | Yes | Telegram forum topic ID — visible in `t.me/c/<group_id>/<thread_id>` links |
 | `skill` | No | Skill to auto-load on new sessions in this topic |
+| `prompt` | No | Ephemeral prompt applied on every turn in this topic |
 
 ### How it works
 
-1. When a message arrives in a mapped group topic, Hermes looks up the `chat_id` and `thread_id` in `group_topics` config
-2. If a matching entry has a `skill` field, that skill is auto-loaded for the session — identical to DM topic skill binding
-3. Topics without a `skill` key get session isolation only (existing behavior, unchanged)
-4. Unmapped `thread_id` values or `chat_id` values fall through silently — no error, no skill
+1. When a message arrives in a mapped group topic, Hermes looks up both the `chat_id` and `thread_id` in `group_topics` config.
+2. A matching `skill` is auto-loaded for the session, identical to DM topic skill binding.
+3. A matching non-blank `prompt` is applied on every turn without being persisted to transcript history.
+4. Unmapped topics continue normally without an auto-loaded skill or per-topic prompt.
 
 ### Differences from DM Topics
 
@@ -1244,6 +1247,8 @@ Keys are chat IDs (groups/supergroups) or forum topic IDs. For forum groups, top
 - Message in a group with no entry → no channel prompt applied
 
 Numeric YAML keys are automatically normalized to strings.
+
+For multi-supergroup bots, prefer the `prompt` field on a [group topic binding](#group-forum-topic-bindings). It matches the `(chat_id, thread_id)` pair, so identical thread IDs in different supergroups cannot collide. A group-topic `prompt` takes precedence over matching `channel_prompts`; remove it to use the flat fallback instead.
 
 ## Troubleshooting
 
