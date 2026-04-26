@@ -420,6 +420,8 @@ Behavior:
 - If a message arrives inside a thread or forum post and that thread has no explicit entry, Hermes falls back to the parent channel/forum ID.
 - Prompts are applied ephemerally at runtime, so changing them affects future turns immediately without rewriting past session history.
 
+For multi-server bots, you can scope a prompt to a single server's channel using a `{guild_id}:{channel_id}` composite key (the resolver tries `{parent}:{channel}` → `{channel}` → `{parent}` in order). The Telegram doc has a [worked example](./telegram.md#per-channel-prompts) of the same syntax — the underlying mechanism is shared (`gateway/platforms/base.py`).
+
 #### `group_sessions_per_user`
 
 **Type:** boolean — **Default:** `true`
