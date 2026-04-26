@@ -350,6 +350,45 @@ def check_telegram_requirements() -> bool:
     return True
 
 
+def _resolve_group_topic(
+    extra: dict,
+    chat_id: str,
+    thread_id: str | None,
+) -> dict[str, Any] | None:
+    """Return the configured Telegram group topic matching both IDs."""
+    if not isinstance(extra, dict) or thread_id is None:
+        return None
+
+    group_topics = extra.get("group_topics") or []
+    if isinstance(group_topics, dict):
+        groups = (
+            {"chat_id": configured_chat_id, "topics": topics}
+            for configured_chat_id, topics in group_topics.items()
+        )
+    elif isinstance(group_topics, list):
+        groups = (group for group in group_topics if isinstance(group, dict))
+    else:
+        return None
+
+    for group in groups:
+        if str(group.get("chat_id", "")) != str(chat_id):
+            continue
+        topics = group.get("topics") or []
+        if not isinstance(topics, list):
+            topics = []
+        for topic in topics:
+            if not isinstance(topic, dict):
+                continue
+            configured_thread_id = topic.get("thread_id")
+            if (
+                configured_thread_id is not None
+                and str(configured_thread_id) == str(thread_id)
+            ):
+                return topic
+        break
+    return None
+
+
 # Matches every character that MarkdownV2 requires to be backslash-escaped
 # when it appears outside a code span or fenced code block.
 _MDV2_ESCAPE_RE = re.compile(r'([_*\[\]()~`>#\+\-=|{}.!\\])')
