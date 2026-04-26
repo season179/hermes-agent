@@ -101,6 +101,8 @@ def _make_source() -> SessionSource:
     )
 
 
+# See test_channel_prompt_composite.py for {parent}:{channel} composite-key tests
+# (resolver is shared in gateway/platforms/base.py).
 class TestResolveChannelPrompts:
     def test_no_prompt_returns_none(self):
         adapter = _make_adapter()
