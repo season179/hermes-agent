@@ -69,3 +69,21 @@ class TestResolveChannelPromptComposite:
             }
         }
         assert resolve_channel_prompt(extra, "5", "-1001") == "Thread prompt"
+
+    def test_int_typed_yaml_keys_match_after_config_bridging(self):
+        """gateway/config.py:589-594 stringifies flat channel_prompts keys at config-bridge
+        time. This test asserts the composite-key lookup behaves the same way after the
+        bridge runs: post-bridge, all keys (including the composite one) are strings, so
+        the resolver finds them. A pre-bridge dict with int keys is intentionally left as
+        the bridge's responsibility (mirrors test_numeric_yaml_keys_normalized_at_config_load
+        in test_discord_channel_prompts.py)."""
+
+        # Post-bridging state — keys already stringified.
+        extra_post = {"channel_prompts": {"-1001:5": "Composite", "-1001": "Group", "5": "Thread"}}
+        assert resolve_channel_prompt(extra_post, "5", "-1001") == "Composite"
+
+        # Pre-bridging state — int keys do not match. The bridge is responsible for
+        # stringifying them. This test pins that the resolver itself does not silently
+        # accept int keys, which would mask a bridge regression.
+        extra_pre = {"channel_prompts": {-1001: "Group", 5: "Thread"}}
+        assert resolve_channel_prompt(extra_pre, "5", "-1001") is None
